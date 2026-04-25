@@ -1,0 +1,15 @@
+# Build
+bin/
+obj/
+*.user
+*.suo
+
+# VS
+.vs/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Packages
+packages/
