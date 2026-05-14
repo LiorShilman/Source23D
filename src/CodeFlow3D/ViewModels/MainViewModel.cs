@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -6,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CodeFlow3D.Analysis;
 using CodeFlow3D.Models;
 using CodeFlow3D.Services;
 
@@ -15,11 +17,13 @@ namespace CodeFlow3D.ViewModels
     {
         private readonly ICallGraphBuilder _graphBuilder;
         private readonly IPathFinder _pathFinder;
+        private readonly FunctionSimulatorService _simulatorService;
         private CancellationTokenSource _analysisCts;
 
         public ProjectExplorerViewModel ProjectExplorer { get; }
         public DiagramViewModel Diagram { get; }
         public CodePreviewViewModel CodePreview { get; }
+        public SimulatorViewModel Simulator { get; }
 
         [ObservableProperty]
         private ProjectModel _currentProject;
@@ -39,22 +43,29 @@ namespace CodeFlow3D.ViewModels
         [ObservableProperty]
         private SymbolNode _targetFunction;
 
+        [ObservableProperty]
+        private bool _isSimulatorMode;
+
         public MainViewModel(
             ProjectExplorerViewModel projectExplorer,
             DiagramViewModel diagram,
             CodePreviewViewModel codePreview,
+            SimulatorViewModel simulator,
             ICallGraphBuilder graphBuilder,
             IPathFinder pathFinder)
         {
             ProjectExplorer = projectExplorer;
             Diagram = diagram;
             CodePreview = codePreview;
+            Simulator = simulator;
             _graphBuilder = graphBuilder;
             _pathFinder = pathFinder;
+            _simulatorService = new FunctionSimulatorService();
 
             ProjectExplorer.FileSelected += OnFileSelected;
             ProjectExplorer.SymbolSelected += OnSymbolSelected;
             Diagram.NodeClicked += OnDiagramNodeClicked;
+            Simulator.StepChanged += OnSimulatorStepChanged;
         }
 
         [RelayCommand]
@@ -184,11 +195,21 @@ namespace CodeFlow3D.ViewModels
         [RelayCommand]
         private async Task RunDemoAsync()
         {
-            // Find the project's own source folder by walking up from the exe location
+            // Immediately show the 3D panel — no matter what state we're in
+            IsSimulatorMode = false;
+            Simulator.StopPlayback();
+
+            // If a project is already loaded, run auto-find on it
+            if (CurrentProject?.CallGraph != null)
+            {
+                await AutoFindBestPathAsync(runSimulatorAfter: true);
+                return;
+            }
+
+            // Otherwise, load the app's own source as demo
             var exePath = Assembly.GetExecutingAssembly().Location;
             var dir = System.IO.Path.GetDirectoryName(exePath);
 
-            // Walk up to find the src/CodeFlow3D folder
             string srcFolder = null;
             var current = dir;
             for (int i = 0; i < 10 && current != null; i++)
@@ -216,37 +237,59 @@ namespace CodeFlow3D.ViewModels
             if (CurrentProject?.CallGraph == null)
                 return;
 
-            // Auto-find the most impressive Source -> Target pair
-            // Try many combinations and pick the path with the most steps & distinct classes
-            var methods = CurrentProject.CallGraph.GetMethods().ToList();
+            await AutoFindBestPathAsync(runSimulatorAfter: true);
+        }
 
-            // Preferred sources: entry-point-like methods that call many things
-            var sourceNames = new[] { "RunDemoAsync", "OpenProjectAsync", "LoadProjectAsync", "AnalyzeFlowAsync" };
-            // Preferred targets: deep internal methods in different classes
-            var targetNames = new[] { "AnalyzeAsync", "DFS", "FindAllPaths", "BuildAsync",
-                                       "Merge", "BuildLayout", "GetAnalyzer", "LoadFile",
-                                       "ResolveInterfaceEdges", "ShouldExclude", "LoadProject" };
+        private async Task AutoFindBestPathAsync(bool runSimulatorAfter = false)
+        {
+            var graph = CurrentProject.CallGraph;
+            var methods = graph.GetMethods().ToList();
+
+            if (methods.Count == 0)
+            {
+                StatusText = "No methods found in project.";
+                return;
+            }
+
+            StatusText = "Searching for the most impressive call path...";
+
+            // Find methods with most outgoing edges (good sources)
+            var methodsWithOutgoing = methods
+                .Select(m => new { Method = m, OutCount = graph.GetOutgoingEdges(m.Id).Count() })
+                .Where(x => x.OutCount > 0)
+                .OrderByDescending(x => x.OutCount)
+                .Take(15)
+                .Select(x => x.Method)
+                .ToList();
+
+            // Find leaf-ish methods (good targets) — methods with few outgoing but some incoming
+            var incomingCount = new System.Collections.Generic.Dictionary<string, int>();
+            foreach (var edge in graph.Edges)
+            {
+                if (!incomingCount.ContainsKey(edge.CalleeId))
+                    incomingCount[edge.CalleeId] = 0;
+                incomingCount[edge.CalleeId]++;
+            }
+
+            var potentialTargets = methods
+                .Where(m => incomingCount.ContainsKey(m.Id))
+                .OrderByDescending(m => incomingCount[m.Id])
+                .Take(20)
+                .ToList();
 
             FlowPath bestPath = null;
             SymbolNode bestSrc = null, bestTgt = null;
             int bestScore = 0;
 
-            StatusText = "Demo: searching for the most impressive call path...";
-
-            foreach (var srcName in sourceNames)
+            foreach (var src in methodsWithOutgoing)
             {
-                var src = methods.FirstOrDefault(m => m.Name == srcName);
-                if (src == null) continue;
-
-                foreach (var tgtName in targetNames)
+                foreach (var tgt in potentialTargets)
                 {
-                    var tgt = methods.FirstOrDefault(m => m.Name == tgtName);
-                    if (tgt == null || tgt.Id == src.Id) continue;
-                    // Must be in a different class
+                    if (tgt.Id == src.Id) continue;
                     if (tgt.ContainingType == src.ContainingType) continue;
 
                     var paths = await Task.Run(() =>
-                        _pathFinder.FindAllPaths(CurrentProject.CallGraph, src.Id, tgt.Id, 1, 15));
+                        _pathFinder.FindAllPaths(graph, src.Id, tgt.Id, 1, 15));
 
                     if (paths.Count > 0)
                     {
@@ -270,26 +313,122 @@ namespace CodeFlow3D.ViewModels
             {
                 SourceFunction = bestSrc;
                 TargetFunction = bestTgt;
+                // Reset to diagram view BEFORE AnalyzeFlow so the panel is Visible
+                // when RenderScene runs — this ensures ZoomExtents gets a real viewport size.
+                if (runSimulatorAfter) { IsSimulatorMode = false; Simulator.StopPlayback(); }
                 await AnalyzeFlowAsync();
+                if (runSimulatorAfter)
+                    await DemoSimulatorAsync(bestSrc);
                 return;
             }
 
             // Fallback: pick any two connected methods in different classes
-            foreach (var edge in CurrentProject.CallGraph.Edges)
+            foreach (var edge in graph.Edges)
             {
-                if (CurrentProject.CallGraph.Nodes.TryGetValue(edge.CallerId, out var caller) &&
-                    CurrentProject.CallGraph.Nodes.TryGetValue(edge.CalleeId, out var callee) &&
+                if (graph.Nodes.TryGetValue(edge.CallerId, out var caller) &&
+                    graph.Nodes.TryGetValue(edge.CalleeId, out var callee) &&
                     caller.Kind == SymbolKind.Method && callee.Kind == SymbolKind.Method &&
                     caller.ContainingType != callee.ContainingType)
                 {
                     SourceFunction = caller;
                     TargetFunction = callee;
+                    if (runSimulatorAfter) { IsSimulatorMode = false; Simulator.StopPlayback(); }
                     await AnalyzeFlowAsync();
+                    if (runSimulatorAfter)
+                        await DemoSimulatorAsync(caller);
                     return;
                 }
             }
 
-            StatusText = "Demo loaded. Select Source and Target functions to analyze.";
+            StatusText = "No cross-class paths found. Select Source and Target manually.";
+        }
+
+        private async Task DemoSimulatorAsync(SymbolNode fallbackFunction)
+        {
+            // ── Phase 1: play the 3D sequence diagram ────────────────────────
+            // IsSimulatorMode is already false (set before AnalyzeFlowAsync ran).
+            // DiagramPanel.IsVisibleChanged will re-apply ZoomExtents automatically.
+            Diagram.IsPlaying = false;
+            Diagram.CurrentStep = 0;
+            StatusText = "Playing 3D call-flow animation...";
+
+            // Wait for the panel to be laid-out and ZoomExtents to fire
+            await Task.Delay(900);
+
+            if (Diagram.TotalSteps > 0)
+            {
+                Diagram.IsPlaying = true;
+
+                // Poll until the timer stops itself (all arrows shown), cap at 15 s
+                int waited = 0;
+                while (Diagram.IsPlaying && waited < 15000)
+                {
+                    await Task.Delay(250);
+                    waited += 250;
+                }
+                Diagram.IsPlaying = false;
+            }
+            else
+            {
+                // No arrows to animate — show the pillars for a moment
+                await Task.Delay(3000);
+            }
+
+            // ── Brief pause between phases ────────────────────────────────────
+            StatusText = "Switching to Function Simulator...";
+            await Task.Delay(1200);
+
+            // ── Phase 2: run Function Simulator ──────────────────────────────
+            var showcaseNode = FindShowcaseFunction();
+            if (showcaseNode != null)
+            {
+                StartSimulation(showcaseNode, ShowcaseParams);
+            }
+            else
+            {
+                var tempSession = _simulatorService.CreateSession(fallbackFunction, new Dictionary<string, string>());
+                var demoParams = new Dictionary<string, string>();
+                if (tempSession != null)
+                    foreach (var p in tempSession.Parameters)
+                        demoParams[p.Name] = MakeDemoValue(p.Name, p.TypeName);
+                StartSimulation(fallbackFunction, demoParams);
+            }
+
+            await Task.Delay(400);
+            Simulator.IsPlaying = true;
+        }
+
+        private SymbolNode FindShowcaseFunction()
+        {
+            var graph = CurrentProject?.CallGraph;
+            if (graph == null) return null;
+            return graph.Nodes.Values.FirstOrDefault(n =>
+                n.Name == "AnalyzeCallGraph" &&
+                n.ContainingType != null && n.ContainingType.Contains("SimulatorShowcase"));
+        }
+
+        private static readonly Dictionary<string, string> ShowcaseParams = new Dictionary<string, string>
+        {
+            { "projectName", "\"CodeFlow3D\"" },
+            { "nodeCount",   "15" },
+            { "verbose",     "true" },
+        };
+
+        private static string MakeDemoValue(string name, string typeName)
+        {
+            var t = typeName.ToLowerInvariant();
+            if (t.Contains("string") || t == "var")
+            {
+                if (name.Contains("path") || name.Contains("dir") || name.Contains("folder"))
+                    return @"C:\MyProject\src";
+                if (name.Contains("name"))  return "MyProject";
+                if (name.Contains("file"))  return "Program.cs";
+                return "\"example\"";
+            }
+            if (t.Contains("int") || t.Contains("long")) return "42";
+            if (t.Contains("bool"))   return "true";
+            if (t.Contains("double") || t.Contains("float")) return "3.14";
+            return "null";
         }
 
         partial void OnSourceFunctionChanged(SymbolNode value)
@@ -318,6 +457,36 @@ namespace CodeFlow3D.ViewModels
         {
             CodePreview.LoadFile(node.FilePath, node.LineStart);
             StatusText = $"Viewing: {node.DisplayName} ({System.IO.Path.GetFileName(node.FilePath)}:{node.LineStart})";
+        }
+
+        private void OnSimulatorStepChanged(object sender, SimulationStep step)
+        {
+            if (step == null) return;
+            var session = Simulator.Session;
+            if (session?.Function?.FilePath != null)
+                CodePreview.LoadFile(session.Function.FilePath, step.LineNumber);
+        }
+
+        // Called from MainWindow code-behind with the selected function + param values
+        public void StartSimulation(SymbolNode function, System.Collections.Generic.Dictionary<string, string> paramValues)
+        {
+            StatusText = $"Building simulation for {function.DisplayName}...";
+            var session = _simulatorService.CreateSession(function, paramValues);
+            if (session == null || session.Steps.Count == 0)
+            {
+                StatusText = "Could not extract steps from function. Is the source file available?";
+                return;
+            }
+
+            Simulator.LoadSession(session);
+            IsSimulatorMode = true;
+            StatusText = $"Simulating {function.DisplayName} — {session.Steps.Count} steps extracted";
+        }
+
+        [RelayCommand]
+        private void ExitSimulator()
+        {
+            IsSimulatorMode = false;
         }
     }
 }

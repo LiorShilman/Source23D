@@ -1,0 +1,185 @@
+<UserControl x:Class="CodeFlow3D.Views.SimulatorPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#090B16">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ── Header ─────────────────────────────────────────── -->
+        <Grid Grid.Row="0" Margin="20,14,20,6">
+            <TextBlock x:Name="HeaderFunc"
+                       FontFamily="Consolas" FontSize="13" Foreground="#00C8E8"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            <TextBlock x:Name="HeaderStep"
+                       FontFamily="Consolas" FontSize="11" Foreground="#304870"
+                       HorizontalAlignment="Right" VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- ── Progress dots ──────────────────────────────────── -->
+        <ItemsControl Grid.Row="1" x:Name="ProgressDots"
+                      Margin="20,0,20,14">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+        </ItemsControl>
+
+        <!-- ── Current statement card ─────────────────────────── -->
+        <Border Grid.Row="2" x:Name="StmtCard"
+                Margin="20,0,20,0" CornerRadius="8"
+                BorderThickness="1" Background="#0F1220">
+            <Border.BorderBrush>
+                <SolidColorBrush x:Name="StmtBorderBrush" Color="#1A2040" />
+            </Border.BorderBrush>
+            <Grid>
+                <!-- left accent bar -->
+                <Border x:Name="StmtAccent"
+                        Width="4" HorizontalAlignment="Left"
+                        CornerRadius="4,0,0,4">
+                    <Border.Background>
+                        <SolidColorBrush x:Name="AccentBrush" Color="#00E5FF" />
+                    </Border.Background>
+                </Border>
+
+                <StackPanel Margin="20,18,16,18">
+                    <!-- Kind badge -->
+                    <Border x:Name="KindBadge"
+                            Padding="9,3" CornerRadius="3"
+                            HorizontalAlignment="Left" Margin="0,0,0,12">
+                        <Border.Background>
+                            <SolidColorBrush x:Name="KindBadgeBg" Color="#003A50" />
+                        </Border.Background>
+                        <TextBlock x:Name="KindText"
+                                   FontFamily="Consolas" FontSize="10" FontWeight="Bold"
+                                   Foreground="White" />
+                    </Border>
+
+                    <!-- Statement text -->
+                    <TextBlock x:Name="StmtText"
+                               FontFamily="Consolas" FontSize="14"
+                               Foreground="#D8E4FF" TextWrapping="Wrap"
+                               Margin="0,0,0,10" />
+
+                    <!-- Called method -->
+                    <StackPanel x:Name="CalledPanel" Orientation="Horizontal"
+                                Margin="0,0,0,6" Visibility="Collapsed">
+                        <TextBlock Text="calls → " FontFamily="Consolas" FontSize="11"
+                                   Foreground="#405080" />
+                        <TextBlock x:Name="CalledText"
+                                   FontFamily="Consolas" FontSize="11"
+                                   Foreground="#7AAAFF" />
+                    </StackPanel>
+
+                    <!-- Line number -->
+                    <TextBlock x:Name="LineNumText"
+                               FontFamily="Consolas" FontSize="10"
+                               Foreground="#2A3860" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ── Variables table ───────────────────────────────── -->
+        <Grid Grid.Row="3" Margin="20,10,20,6" x:Name="VarsSection" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- section label -->
+            <TextBlock Grid.Row="0"
+                       FontFamily="Segoe UI" FontSize="9" FontWeight="SemiBold"
+                       Foreground="#28385A" Margin="2,0,0,5">
+                VARIABLES
+            </TextBlock>
+
+            <!-- column headers -->
+            <Grid Grid.Row="1" Margin="0,0,0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="3*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="NAME"
+                           FontFamily="Segoe UI" FontSize="9" FontWeight="SemiBold"
+                           Foreground="#1E2E48" Margin="8,0,0,0" />
+                <TextBlock Grid.Column="1" Text="TYPE"
+                           FontFamily="Segoe UI" FontSize="9" FontWeight="SemiBold"
+                           Foreground="#1E2E48" />
+                <TextBlock Grid.Column="2" Text="VALUE"
+                           FontFamily="Segoe UI" FontSize="9" FontWeight="SemiBold"
+                           Foreground="#1E2E48" Margin="8,0,0,0" />
+            </Grid>
+
+            <!-- rows container -->
+            <ScrollViewer Grid.Row="2" MaxHeight="150"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="VarsPanel" />
+            </ScrollViewer>
+        </Grid>
+
+        <!-- ── Control bar ────────────────────────────────────── -->
+        <Border Grid.Row="4" Background="#0D0F1A"
+                BorderBrush="#141828" BorderThickness="0,1,0,0"
+                Padding="12,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="StepKindBlock" FontFamily="Consolas" FontSize="11"
+                               Foreground="#304870" Margin="0,0,8,0" />
+                    <TextBlock x:Name="CalledMethodBlock" FontFamily="Consolas" FontSize="11"
+                               Foreground="#4480C0" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Button x:Name="RestartBtn" Content="↺" Width="30" Height="28"
+                            FontSize="14" ToolTip="Restart" Margin="0,0,6,0"
+                            Click="RestartBtn_Click" Style="{StaticResource SimCtrlBtn}" />
+                    <Button x:Name="StepBackBtn" Content="◀" Width="30" Height="28"
+                            FontSize="12" ToolTip="Step Back" Margin="0,0,6,0"
+                            Click="StepBackBtn_Click" Style="{StaticResource SimCtrlBtn}" />
+                    <Button x:Name="PlayBtn" Width="76" Height="28"
+                            Margin="0,0,6,0" Click="PlayBtn_Click"
+                            Style="{StaticResource SimPlayBtn}">
+                        <TextBlock x:Name="PlayBtnText" Text="▶  Play"
+                                   VerticalAlignment="Center" FontSize="12" />
+                    </Button>
+                    <Button x:Name="StepFwdBtn" Content="▶" Width="30" Height="28"
+                            FontSize="12" ToolTip="Step Forward"
+                            Click="StepFwdBtn_Click" Style="{StaticResource SimCtrlBtn}" />
+                </StackPanel>
+
+                <TextBlock Grid.Column="2" x:Name="StepCounterBlock"
+                           FontFamily="Consolas" FontSize="11" Foreground="#304870"
+                           HorizontalAlignment="Right" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+
+        <!-- ── Empty state overlay ────────────────────────────── -->
+        <Border Grid.RowSpan="5" x:Name="EmptyState" Background="#CC090B16">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock Text="Function Simulator" FontSize="22" FontWeight="Light"
+                           FontFamily="Segoe UI" Foreground="#00C8E8"
+                           HorizontalAlignment="Center" Margin="0,0,0,10" />
+                <TextBlock Text="Click  ⚡ SIMULATE  in the toolbar and select a function"
+                           FontSize="13" FontFamily="Segoe UI" Foreground="#2A4060"
+                           HorizontalAlignment="Center" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

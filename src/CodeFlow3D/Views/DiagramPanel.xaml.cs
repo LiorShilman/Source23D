@@ -15,9 +15,10 @@ namespace CodeFlow3D.Views
     public partial class DiagramPanel : UserControl
     {
         private const int TubeSegments = 10;
-        private const double TubeRadius = 0.04;
-        private const double ConeRadius = 0.15;
-        private const double ConeLength = 0.35;
+        private const double TubeRadius = 0.035;
+        private const double SelfCallTubeRadius = 0.02;
+        private const double ConeRadius = 0.11;
+        private const double ConeLength = 0.28;
         private const double PillarWidth = 0.7;
 
         /// <summary>Each arrow step gets its own visual group (tube+glow+cone+dot+labels).</summary>
@@ -54,6 +55,22 @@ namespace CodeFlow3D.Views
             Viewport3D.MouseLeftButtonDown += OnViewportClick;
             Viewport3D.MouseMove += OnViewportMouseMove;
             Viewport3D.MouseLeave += OnViewportMouseLeave;
+
+            // Re-fit the camera whenever this panel is made visible.
+            // ZoomExtents only works on a panel with a real size, so if the panel
+            // was Collapsed when RenderScene ran (e.g. simulator mode was active),
+            // we need to recalculate the camera position now that layout is real.
+            IsVisibleChanged += (s, e) =>
+            {
+                if ((bool)e.NewValue)
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if ((DataContext as DiagramViewModel)?.CurrentLayout != null)
+                            Viewport3D.ZoomExtents(300);
+                    }), System.Windows.Threading.DispatcherPriority.Render);
+                }
+            };
         }
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -292,18 +309,18 @@ namespace CodeFlow3D.Views
 
                 var stepGroup = new Model3DGroup();
 
-                if (arrow.IsReturn) // self-call: small U-shaped loop
+                if (arrow.IsReturn) // self-call: small neat U-shaped loop
                 {
                     var s = arrow.StartPoint;
-                    var e = arrow.EndPoint;
-                    double loopDown = 0.6;
-                    var corner1 = new Point3D(e.X, s.Y, s.Z);
-                    var corner2 = new Point3D(e.X, s.Y - loopDown, s.Z);
+                    double loopOut = 1.2;  // how far to the right it extends
+                    double loopDown = 0.5; // how far down it drops
+                    var corner1 = new Point3D(s.X + loopOut, s.Y, s.Z);
+                    var corner2 = new Point3D(s.X + loopOut, s.Y - loopDown, s.Z);
                     var corner3 = new Point3D(s.X, s.Y - loopDown, s.Z);
 
-                    stepGroup.Children.Add(CreateTubeArrow(s, corner1, arrowColor));
-                    stepGroup.Children.Add(CreateTubeArrow(corner1, corner2, arrowColor));
-                    stepGroup.Children.Add(CreateTubeArrow(corner2, corner3, arrowColor));
+                    stepGroup.Children.Add(CreateSlimTube(s, corner1, arrowColor));
+                    stepGroup.Children.Add(CreateSlimTube(corner1, corner2, arrowColor));
+                    stepGroup.Children.Add(CreateSlimTube(corner2, corner3, arrowColor));
 
                     var returnCone = CreateConeArrowhead(corner2, corner3, arrowColor);
                     stepGroup.Children.Add(returnCone);
@@ -329,19 +346,23 @@ namespace CodeFlow3D.Views
                 var stepVisual = new ModelVisual3D { Content = stepGroup };
                 OpaqueScene.Children.Add(stepVisual);
 
-                // Arrow function name label (above midpoint)
-                var mid = new Point3D(
-                    (arrow.StartPoint.X + arrow.EndPoint.X) / 2,
-                    arrow.StartPoint.Y + 0.6,
-                    arrow.StartPoint.Z + 0.3);
-                var arrowLabel = CreateBillboard(arrow.Label, mid, arrowColor, 11);
+                // Arrow function name label (above midpoint, self-calls above loop top)
+                Point3D labelPos;
+                if (arrow.IsReturn)
+                    labelPos = new Point3D(arrow.StartPoint.X + 0.6, arrow.StartPoint.Y + 0.5, arrow.StartPoint.Z);
+                else
+                    labelPos = new Point3D(
+                        (arrow.StartPoint.X + arrow.EndPoint.X) / 2,
+                        arrow.StartPoint.Y + 0.55,
+                        arrow.StartPoint.Z + 0.2);
+                var arrowLabel = CreateBillboard(arrow.Label, labelPos, arrowColor, 11);
                 Viewport3D.Children.Add(arrowLabel);
 
-                // Sequence number badge (at arrow start, no 3D sphere — just billboard)
+                // Sequence badge — sits just left of arrow start, slightly above
                 var badgePos = new Point3D(
-                    arrow.StartPoint.X,
-                    arrow.StartPoint.Y,
-                    arrow.StartPoint.Z + 0.4);
+                    arrow.StartPoint.X - 0.35,
+                    arrow.StartPoint.Y + 0.18,
+                    arrow.StartPoint.Z + 0.3);
                 var seqLabel = CreateNumberBadge(arrow.SequenceIndex + 1, badgePos, arrowColor);
                 Viewport3D.Children.Add(seqLabel);
 
@@ -393,16 +414,18 @@ namespace CodeFlow3D.Views
 
         private BillboardTextVisual3D CreateNumberBadge(int number, Point3D position, Color accentColor)
         {
+            var dim = Color.FromArgb(180, (byte)(accentColor.R / 3), (byte)(accentColor.G / 3), (byte)(accentColor.B / 3));
             var label = new BillboardTextVisual3D
             {
                 Text = number.ToString(),
                 Position = position,
-                FontSize = 11,
+                FontSize = 9,
+                FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush(Colors.White),
-                Background = new SolidColorBrush(Color.FromArgb(200, accentColor.R, accentColor.G, accentColor.B)),
-                BorderBrush = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(5, 1, 5, 1),
+                Background = new SolidColorBrush(dim),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(180, accentColor.R, accentColor.G, accentColor.B)),
+                BorderThickness = new Thickness(0.8),
+                Padding = new Thickness(4, 1, 4, 1),
                 FontFamily = new FontFamily("Consolas"),
             };
             _labelOrigText[label] = number.ToString();
@@ -566,6 +589,16 @@ namespace CodeFlow3D.Views
             material.Children.Add(new EmissiveMaterial(new SolidColorBrush(
                 Color.FromArgb(120, color.R, color.G, color.B))));
 
+            return new GeometryModel3D(mesh, material) { BackMaterial = material };
+        }
+
+        private GeometryModel3D CreateSlimTube(Point3D start, Point3D end, Color color)
+        {
+            var mesh = CreateTubeMesh(start, end, SelfCallTubeRadius, 8);
+            var material = new MaterialGroup();
+            material.Children.Add(new DiffuseMaterial(new SolidColorBrush(color)));
+            material.Children.Add(new EmissiveMaterial(new SolidColorBrush(
+                Color.FromArgb(140, color.R, color.G, color.B))));
             return new GeometryModel3D(mesh, material) { BackMaterial = material };
         }
 

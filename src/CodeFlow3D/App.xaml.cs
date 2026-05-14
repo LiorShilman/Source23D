@@ -35,6 +35,7 @@ namespace CodeFlow3D
             services.AddSingleton<ProjectExplorerViewModel>();
             services.AddSingleton<DiagramViewModel>();
             services.AddSingleton<CodePreviewViewModel>();
+            services.AddSingleton<SimulatorViewModel>();
         }
 
         protected override void OnExit(ExitEventArgs e)
