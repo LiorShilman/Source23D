@@ -16,6 +16,7 @@ namespace CodeFlow3D
         {
             InitializeComponent();
             DataContext = App.ServiceProvider.GetRequiredService<MainViewModel>();
+            ViewModel.ProjectExplorer.SimulateRequested += OnSimulateDirectly;
         }
 
         private void SourceButton_Click(object sender, RoutedEventArgs e)
@@ -50,6 +51,23 @@ namespace CodeFlow3D
 
             if (picker.ShowDialog() == true)
                 ViewModel.TargetFunction = picker.SelectedSymbol;
+        }
+
+        private void OnSimulateDirectly(object sender, SymbolNode function)
+        {
+            var tempService = new FunctionSimulatorService();
+            var tempSession = tempService.CreateSession(function, new());
+
+            var paramDlg = new ParameterInputDialog(function,
+                tempSession?.Parameters ?? new List<ParameterInfo>())
+            {
+                Owner = this
+            };
+
+            if (paramDlg.ShowDialog() != true)
+                return;
+
+            ViewModel.StartSimulation(function, paramDlg.ParameterValues);
         }
 
         private void SimulateButton_Click(object sender, RoutedEventArgs e)

@@ -85,6 +85,10 @@
                     Background="#1A1C2E" BorderBrush="#2A3050"
                     Foreground="#8090B0" Margin="0,0,10,0"
                     Click="CancelButton_Click" />
+            <Button Content="🎲  Random" ToolTip="Fill all parameters with random test values"
+                    Background="#1A2030" BorderBrush="#3A4060"
+                    Foreground="#A0C0FF" Margin="0,0,10,0"
+                    Click="RandomButton_Click" />
             <Button Content="▶  Simulate" IsDefault="True"
                     Background="#004E8C" BorderBrush="#00E5FF"
                     Foreground="White" FontWeight="SemiBold"

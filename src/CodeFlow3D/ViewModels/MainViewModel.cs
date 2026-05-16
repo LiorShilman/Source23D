@@ -64,6 +64,8 @@ namespace CodeFlow3D.ViewModels
 
             ProjectExplorer.FileSelected += OnFileSelected;
             ProjectExplorer.SymbolSelected += OnSymbolSelected;
+            ProjectExplorer.SetAsSourceRequested += (_, sym) => SourceFunction = sym;
+            ProjectExplorer.SetAsTargetRequested += (_, sym) => TargetFunction = sym;
             Diagram.NodeClicked += OnDiagramNodeClicked;
             Simulator.StepChanged += OnSimulatorStepChanged;
         }
@@ -433,14 +435,18 @@ namespace CodeFlow3D.ViewModels
 
         partial void OnSourceFunctionChanged(SymbolNode value)
         {
-            if (value != null)
-                StatusText = $"Source: {value.DisplayName}";
+            if (value == null) return;
+            StatusText = $"Source: {value.DisplayName}";
+            if (value.FilePath != null)
+                ProjectExplorer.RevealFile(value.FilePath);
         }
 
         partial void OnTargetFunctionChanged(SymbolNode value)
         {
-            if (value != null)
-                StatusText = $"Target: {value.DisplayName}";
+            if (value == null) return;
+            StatusText = $"Target: {value.DisplayName}";
+            if (value.FilePath != null)
+                ProjectExplorer.RevealFile(value.FilePath);
         }
 
         private void OnFileSelected(object sender, string filePath)
@@ -481,6 +487,9 @@ namespace CodeFlow3D.ViewModels
             Simulator.LoadSession(session);
             IsSimulatorMode = true;
             StatusText = $"Simulating {function.DisplayName} — {session.Steps.Count} steps extracted";
+
+            if (function.FilePath != null)
+                ProjectExplorer.RevealFile(function.FilePath);
         }
 
         [RelayCommand]
